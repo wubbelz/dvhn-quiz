@@ -4,38 +4,57 @@ import requests
 from bs4 import BeautifulSoup
 import random
 from datetime import datetime
+import socket
+import os
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'your-secret-key-here'  # Change this in production
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'your-secret-key-here')  # Use environment variable in production
 app.config['SESSION_TYPE'] = 'filesystem'
 Session(app)
 
-# Dutch cities and places (add more as needed)
+# Dutch cities and places
 DUTCH_PLACES = {
+    # Groningen
     'Groningen', 'Leeuwarden', 'Assen', 'Emmen', 'Delfzijl', 'Winschoten', 'Veendam', 'Hoogeveen',
     'Meppel', 'Drachten', 'Heerenveen', 'Sneek', 'Zuidhorn', 'Hoogezand', 'Stadskanaal', 'Musselkanaal',
-    'Ter Apel', 'Appingedam', 'Beilen', 'Coevorden', 'Roden', 'Schildwolde', 'Wildervank', 'Pekela',
-    'Friesland', 'Drenthe', 'Nederland', 'Amsterdam', 'Rotterdam', 'Utrecht', 'Zwolle'
+    'Ter Apel', 'Appingedam', 'Edam', 'Beilen', 'Coevorden', 'Roden', 'Schildwolde', 'Wildervank', 'Pekela',
+    # Toegevoegde plaatsen in Groningen
+    'Appingedam', 'Baflo', 'Bedum', 'Delfzijl', 'Eelde', 'Haren', 'Hoogkerk', 'Leek', 'Loppersum', 'Middelstum',
+    'Oosterwolde', 'Sappemeer', 'Siddeburen', 'Ten Boer', 'Uithuizen', 'Winsum', 'Zuidhorn',
+    # Friesland
+    'Harlingen', 'Franeker', 'Dokkum', 'Lemmer', 'Bolsward', 'Workum', 'IJlst', 'Sloten',
+    # Toegevoegde plaatsen in Friesland
+    'Akkrum', 'Burgum', 'Gorredijk', 'Grou', 'Joure', 'Kollum', 'Makkum', 'Stiens', 'Surhuisterveen', 'Wolvega',
+    # Drenthe
+    'Meppel', 'Emmen', 'Hoogeveen', 'Assen', 'Coevorden',
+    # Toegevoegde plaatsen in Drenthe
+    'Beilen', 'Borger', 'Diever', 'Eelde', 'Gieten', 'Norg', 'Roden', 'Ruinen', 'Vries', 'Zuidlaren',
+    # Overijssel
+    'Enschede', 'Zwolle', 'Deventer', 'Almelo', 'Hengelo', 'Kampen', 'Oldenzaal', 'Ommen',
+    # Gelderland
+    'Nijmegen', 'Arnhem', 'Apeldoorn', 'Ede', 'Doetinchem', 'Zutphen', 'Wageningen', 'Harderwijk',
+    # Utrecht
+    'Utrecht', 'Amersfoort', 'Zeist', 'Nieuwegein', 'Veenendaal', 'Hilversum', 'Soest', 'Baarn',
+    # Noord-Holland
+    'Amsterdam', 'Haarlem', 'Zaandam', 'Alkmaar', 'Hilversum', 'Hoorn', 'Purmerend', 'Amstelveen',
+    # Zuid-Holland
+    'Rotterdam', 'Den Haag', 'Leiden', 'Delft', 'Dordrecht', 'Gouda', 'Schiedam', 'Vlaardingen',
+    # Zeeland
+    'Middelburg', 'Vlissingen', 'Goes', 'Terneuzen', 'Zierikzee', 'Veere', 'Tholen', 'Sluis',
+    # Noord-Brabant
+    'Eindhoven', 'Tilburg', 'Breda', 'Den Bosch', 'Helmond', 'Roosendaal', 'Oss', 'Bergen op Zoom',
+    # Limburg
+    'Maastricht', 'Venlo', 'Roermond', 'Heerlen', 'Sittard', 'Weert', 'Kerkrade',
+    # Flevoland
+    'Almere', 'Lelystad', 'Emmeloord', 'Dronten', 'Zeewolde', 'Urk', 'Biddinghuizen',
+    # Provincies
+    'Friesland', 'Drenthe', 'Overijssel', 'Gelderland', 'Utrecht', 'Noord-Holland', 'Zuid-Holland',
+    'Zeeland', 'Noord-Brabant', 'Limburg', 'Flevoland', 'Groningen'
 }
 
 def is_place(word):
     """Check if a word is a place"""
     return word in DUTCH_PLACES
-
-def is_name(word):
-    """Check if a word is likely a name (capitalized word that's not a place)"""
-    if word[0].isupper() and len(word) > 1:
-        common_caps = {'De', 'Het', 'Een', 'LIVE', 'Dit', 'Dat', 'Deze', 'Die', 'Wat', 'Wie', 'Waar', 'FC'}
-        return word not in common_caps and not is_place(word)
-    return False
-
-def get_word_type(word):
-    """Determine if a word is a place or name"""
-    if is_place(word):
-        return 'place'
-    elif is_name(word):
-        return 'name'
-    return None
 
 def get_headlines():
     """Scrape headlines from dvhn.nl"""
@@ -66,46 +85,32 @@ def get_headlines():
         print(f"Error fetching headlines: {str(e)}")
         return []
 
-def get_significant_word(headline):
-    """Find a name or place in the headline to remove"""
+def get_place_from_headline(headline):
+    """Find a place in the headline to remove"""
     words = headline.split()
-    significant_words = []
+    places = []
     
-    for word in words:
-        word_type = get_word_type(word)
-        if word_type:
-            significant_words.append((word, word_type))
+    # Check each word and its combinations
+    for i, word in enumerate(words):
+        # Check single word
+        if is_place(word):
+            places.append(word)
+        
+        # Check two-word combinations
+        if i < len(words) - 1:
+            two_words = f"{word} {words[i + 1]}"
+            if is_place(two_words):
+                places.append(two_words)
     
-    if significant_words:
-        return random.choice(significant_words)
-    return None
+    return random.choice(places) if places else None
 
-def generate_wrong_answers(correct_word, word_type, all_headlines):
-    """Generate plausible wrong answers of the same type"""
-    all_words = []
+def generate_wrong_answers(correct_place):
+    """Generate plausible wrong answers (other places)"""
+    # Remove the correct place from the pool
+    available_places = [place for place in DUTCH_PLACES if place != correct_place]
     
-    # Collect words of the same type from headlines
-    for headline in all_headlines:
-        words = headline.split()
-        for word in words:
-            if get_word_type(word) == word_type and word != correct_word:
-                all_words.append(word)
-    
-    # Add known places if we need more options
-    if word_type == 'place':
-        all_words.extend(list(DUTCH_PLACES))
-    
-    # Remove duplicates
-    word_pool = list(set(all_words))
-    
-    # Select random words for wrong answers
-    wrong_answers = random.sample(word_pool, min(3, len(word_pool)))
-    
-    # If we still don't have enough wrong answers, use some default places
-    while len(wrong_answers) < 3 and word_type == 'place':
-        random_place = random.choice(list(DUTCH_PLACES))
-        if random_place not in wrong_answers and random_place != correct_word:
-            wrong_answers.append(random_place)
+    # Select 3 random places
+    wrong_answers = random.sample(available_places, 3)
     
     return wrong_answers
 
@@ -119,30 +124,30 @@ def start_game():
     valid_questions = []
     
     for headline in headlines:
-        if get_significant_word(headline) is not None:
+        if get_place_from_headline(headline) is not None:
             valid_questions.append(headline)
     
     if len(valid_questions) < 5:
-        return jsonify({'error': 'Niet genoeg koppen met namen of plaatsen gevonden'}), 400
+        return jsonify({'error': 'Niet genoeg koppen met plaatsnamen gevonden'}), 400
     
     questions = random.sample(valid_questions, 5)
     game_data = []
     
     for headline in questions:
-        removed_word, word_type = get_significant_word(headline)
-        wrong_answers = generate_wrong_answers(removed_word, word_type, headlines)
+        removed_place = get_place_from_headline(headline)
+        wrong_answers = generate_wrong_answers(removed_place)
         
-        options = wrong_answers + [removed_word]
+        options = wrong_answers + [removed_place]
         random.shuffle(options)
-        correct_index = options.index(removed_word)
+        correct_index = options.index(removed_place)
         
         game_data.append({
             'headline': headline,
-            'censored_headline': headline.replace(removed_word, '█' * len(removed_word)),
+            'censored_headline': headline.replace(removed_place, '█' * len(removed_place)),
             'options': options,
             'correct_index': correct_index,
-            'correct_word': removed_word,
-            'word_type': word_type
+            'correct_word': removed_place,
+            'word_type': 'place'  # Always place
         })
     
     session['game_data'] = game_data
@@ -175,7 +180,7 @@ def check_answer():
         'correct_word': question['correct_word'],
         'score': session.get('score', 0),
         'total_questions': len(game_data),
-        'word_type': question['word_type']
+        'word_type': 'place'  # Always place
     })
 
 @app.route('/get_results')
@@ -191,7 +196,21 @@ def get_results():
     })
 
 if __name__ == '__main__':
-    print("\nStarting DVHN News Quiz...")
-    print("Access the quiz at: http://localhost:5000")
-    print("Or from other devices on your network using your computer's IP address")
-    app.run(host='0.0.0.0', port=5000, debug=True) 
+    # Get local IP address
+    hostname = socket.gethostname()
+    local_ip = socket.gethostbyname(hostname)
+    
+    print("\n=== DVHN Nieuws Quiz ===")
+    print("\nJe kunt de quiz nu spelen op:")
+    print(f"1. Lokaal op je computer: http://localhost:5000")
+    print(f"2. Vanaf andere apparaten op je netwerk: http://{local_ip}:5000")
+    print("\nOm de quiz te delen met anderen:")
+    print("1. Zorg dat je computer en de andere apparaten op hetzelfde netwerk zitten")
+    print("2. Deel de URL http://" + local_ip + ":5000 met anderen")
+    print("3. Als anderen de quiz niet kunnen bereiken, controleer dan je firewall instellingen")
+    print("\nDruk Ctrl+C om de quiz te stoppen")
+    print("=" * 30 + "\n")
+    
+    # Use environment variable for port in production
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=True)
